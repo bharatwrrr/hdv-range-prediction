@@ -1,0 +1,37 @@
+{
+    "past_features": [
+        "v",
+        "a",
+        "theta",
+        "alt",
+        "P"
+    ],
+    "future_features": [
+        "theta",
+        "alt"
+    ],
+    "static_features": [
+        "Ta",
+        "m",
+        "distance_rem"
+    ],
+    "train_subset": 100,
+    "future_seq_len": 100,
+    "past_seq_len": 30,
+    "past_encoder_type": "transformer",
+    "past_encoder_hidden_dim": 16,
+    "past_encoder_nheads": 4,
+    "past_encoder_nlayers": 2,
+    "future_encoder_type": "transformer",
+    "future_encoder_hidden_dim": 128,
+    "future_encoder_nheads": 4,
+    "future_encoder_nlayers": 2,
+    "fused_hidden_dim": 128,
+    "init_lr": 0.001,
+    "patience": 300,
+    "epochs": 10,
+    "loss_alpha": 0,
+    "batch_size": 64,
+    "use_future_speed": false,
+    "use_road_type": true
+}
