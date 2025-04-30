@@ -15,6 +15,7 @@
         "m",
         "distance_rem"
     ],
+    "road_num_classes": 15,
     "train_subset": 100,
     "future_seq_len": 50,
     "past_seq_len": 30,
