@@ -33,5 +33,6 @@
     "loss_alpha": 0,
     "batch_size": 64,
     "use_future_speed": false,
-    "use_road_type": true
+    "use_road_type": true,
+    "name": "no_m"
 }
