@@ -9,6 +9,7 @@ from typing import List, Tuple
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
 
 DATA_PATH = "data/" # change this to your data path
+SRC_DIR = "src/"
 BASE_CONFIG_PATH = "configs/base_config.json"
 ABLATION_CONFIGS_DIR = "configs/ablations/"
 OUTPUT_DIR = "output/" 
