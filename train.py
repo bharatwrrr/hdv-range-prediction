@@ -51,6 +51,12 @@ def validate(model, val_loader, criterion, device, max_batches=20):
 def train(config_path="configs/base_config.json", verbose: bool = False):
     # Load config
     config = load_config(BASE_CONFIG_PATH, config_path)
+    model_name = config["name"]
+    # Save the model with the unique name
+    model_path = f"models/{model_name}.pth"
+    if os.path.exists(model_path):
+        print(f"Model {model_name} already exists. Skipping training.")
+        return
     # set_seed(42)
 
     # Init Weights & Biases
@@ -138,9 +144,7 @@ def train(config_path="configs/base_config.json", verbose: bool = False):
 
         if val_loss < best_val_loss:
             best_val_loss = val_loss
-            model_name = config["name"]
-            # Save the model with the unique name
-            model_path = f"models/{model_name}.pth"
+            print(f"New best validation loss: {best_val_loss:.4f}. Saving model...")
             torch.save(model, model_path)
             wandb.run.summary["best_val_loss"] = best_val_loss
 
