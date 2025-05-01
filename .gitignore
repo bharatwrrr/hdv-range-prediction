@@ -1,3 +1,9 @@
 data/
+__pycache__/
+.ipynb_checkpoints/
+src/.ipynb_checkpoints/
 src/models/.ipynb_checkpoints/
+configs/ablations/feature/.ipynb_checkpoints/
+configs/ablations/loss/.ipynb_checkpoints/
 src/data/
+wandb/
