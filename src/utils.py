@@ -3,11 +3,15 @@ import torch.nn as nn
 from torch.utils.data.dataloader import default_collate
 
 import math
+import json
 import numpy as np
 from typing import List, Tuple
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
 
-
+DATA_PATH = "data/" # change this to your data path
+BASE_CONFIG_PATH = "configs/base_config.json"
+ABLATION_CONFIGS_DIR = "configs/ablations/"
+OUTPUT_DIR = "output/" 
 
 class PositionalEncoding(nn.Module):
     def __init__(self, dim, max_len=1000):
@@ -47,7 +51,6 @@ def fit_scalers(trips, use_future_speed: bool,
         past_block = df[past_features].dropna().values
         past_data.append(past_block)
         
-        
         # Future features
         route_feats = future_features
         if use_future_speed:
@@ -59,7 +62,8 @@ def fit_scalers(trips, use_future_speed: bool,
         # Static features at each time
         static_block = df[static_features].dropna().values
         static_data.append(static_block)
-        print(f'{i}/{len(trips)}', end='\r')
+        # print(f'{i}/{len(trips)}: Length of trip: {len(df)}')
+        
 
     scaler_past = StandardScaler().fit(np.vstack(past_data))
     scaler_future = StandardScaler().fit(np.vstack(future_data))
@@ -104,3 +108,18 @@ def collate_fn_skip_none(batch: List[torch.Tensor]) -> torch.Tensor:
     batch = [b for b in batch if b is not None]
     return default_collate(batch) if batch else None
 
+def load_config(base_path=BASE_CONFIG_PATH, ablation_path=None):
+    # Load base config
+    with open(base_path, 'r') as f:
+        base_config = json.load(f)
+
+    # If ablation config is provided
+    if ablation_path:
+        with open(ablation_path, 'r') as f:
+            ablation_config = json.load(f)
+
+        if "override" in ablation_config:
+            # Merge overrides into base config
+            base_config.update(ablation_config["override"])
+
+    return base_config
