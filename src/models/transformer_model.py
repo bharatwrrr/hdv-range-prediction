@@ -6,8 +6,8 @@ from ..utils import PositionalEncoding
 
 
 class PastEncoderBlock(nn.Module):
-    def __init__(self, input_dim: int, hidden_dim: int, n_heads: int, 
-                 n_layers: int, dropout: float = 0.0, max_len: int = 1000):
+    def __init__(self, input_dim: int, hidden_dim: int, n_heads: int = 4, 
+                 n_layers: int = 2, dropout: float = 0.0, max_len: int = 1000):
         super().__init__()
         self.input_proj = nn.Linear(input_dim, hidden_dim)
         self.pos_enc = PositionalEncoding(hidden_dim, max_len=max_len)  # fixed here
@@ -31,8 +31,8 @@ class PastEncoderBlock(nn.Module):
         return out.mean(dim=1)            # [B, hidden_dim]
     
 class FutureEncoderBlock(nn.Module):
-    def __init__(self, input_dim, road_type_dim: int, hidden_dim: int, n_heads: int, 
-                 n_layers: int, dropout: float =0.0, max_len: int = 1000):
+    def __init__(self, input_dim, hidden_dim: int, road_type_dim: int = 15, n_heads: int = 4, 
+                 n_layers: int = 2, dropout: float =0.0, max_len: int = 1000):
         super().__init__()
         self.road_type_dim = road_type_dim
         self.input_phys_dim = input_dim - road_type_dim
@@ -87,7 +87,7 @@ class TransformerSOCDropPredictor(nn.Module):
                  fused_hidden_dim: int):
         super().__init__()
 
-        self.past_encoder = PastEncoderBlock(past_input_dim, past_hidden_dim)
+        self.past_encoder = PastEncoderBlock(past_input_dim, hidden_dim=past_hidden_dim)
         self.future_encoder = FutureEncoderBlock(future_input_dim, hidden_dim=future_hidden_dim)
 
         self.fusion = nn.Sequential(
