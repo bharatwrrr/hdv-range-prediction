@@ -49,26 +49,29 @@ def fit_scalers(trips, use_future_speed: bool,
         df = df.replace([np.inf, -np.inf], np.nan).dropna()
         
         # Past features
-        past_block = df[past_features].dropna().values
-        past_data.append(past_block)
+        if not len(past_features) == 0:
+            past_block = df[past_features].dropna().values
+            past_data.append(past_block)
         
         # Future features
-        route_feats = future_features
-        if use_future_speed:
-            if "v" not in route_feats:
-                route_feats = ["v"] + route_feats
-        future_block = df[route_feats].dropna().values
-        future_data.append(future_block)
+        if not len(future_features) == 0:
+            route_feats = future_features
+            if use_future_speed:
+                if "v" not in route_feats:
+                    route_feats = ["v"] + route_feats
+            future_block = df[route_feats].dropna().values
+            future_data.append(future_block)
 
         # Static features at each time
-        static_block = df[static_features].dropna().values
-        static_data.append(static_block)
+        if not len(static_features) == 0:
+            static_block = df[static_features].dropna().values
+            static_data.append(static_block)
         # print(f'{i}/{len(trips)}: Length of trip: {len(df)}')
         
 
-    scaler_past = StandardScaler().fit(np.vstack(past_data))
-    scaler_future = StandardScaler().fit(np.vstack(future_data))
-    scaler_static = StandardScaler().fit(np.vstack(static_data))
+    scaler_past = StandardScaler().fit(np.vstack(past_data)) if len(past_features) > 0 else None
+    scaler_future = StandardScaler().fit(np.vstack(future_data)) if len(future_features) > 0 else None
+    scaler_static = StandardScaler().fit(np.vstack(static_data)) if len(static_features) > 0 else None
 
     return scaler_past, scaler_future, scaler_static
 
