@@ -80,6 +80,8 @@ def train(config_path="configs/base_config.json", verbose: bool = False):
     criterion = lambda mu, sigma, target: gaussian_nll(mu, sigma, target) + \
                                           config["loss_alpha"] * F.mse_loss(mu, target)
 
+    early_stopping_patience = 4
+    no_improve_counter = 0
     # Make sure the models directory exists
     os.makedirs("models", exist_ok=True)
     
@@ -140,13 +142,20 @@ def train(config_path="configs/base_config.json", verbose: bool = False):
                 print(f"[Epoch {epoch+1}, Step {i}] Train Loss: {loss.item():.4f}, Train MAE: {batch_mae/target.size(0):.4f}, Val Loss: {val_loss:.4f}, Val MAE: {val_mae:.4f}, LR: {optimizer.param_groups[0]['lr']:.6f}")
 
         print(f"[Epoch {epoch+1}] Train Loss: {loss.item():.4f}, Val Loss: {val_loss:.4f}, Val MAE: {val_mae:.4f}")
-        wandb.log({"train_loss": loss.item(), "val_loss": val_loss, "val_mae": val_mae, "epoch": epoch + 1})
+        wandb.log({"train_loss": loss.item(), "train_mae": batch_mae/total_samples, "val_loss": val_loss, "val_mae": val_mae, "epoch": epoch + 1})
 
         if val_loss < best_val_loss:
             best_val_loss = val_loss
             print(f"New best validation loss: {best_val_loss:.4f}. Saving model...")
             torch.save(model, model_path)
             wandb.run.summary["best_val_loss"] = best_val_loss
+        else:
+            no_improve_counter += 1
+            print(f"No improvement in validation loss for {no_improve_counter} epoch(s).")
+
+        if no_improve_counter >= early_stopping_patience:
+            print(f"Early stopping triggered after {epoch+1} epochs.")
+            break
 
 if __name__ == "__main__":
     import argparse    
