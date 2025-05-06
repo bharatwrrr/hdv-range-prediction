@@ -2,22 +2,24 @@ import os
 import torch
 import numpy as np
 from torch.utils.data import Dataset
-from ..utils import detect_charging_jump
+from ..utils import detect_charging_jump, get_full_config
 from typing import List
 
 import fireducks.pandas as pd
-from ..utils import fit_scalers, DATA_PATH
+from ..utils import fit_scalers, DATA_PATH, dynamic_remaining_range
 from sklearn.model_selection import train_test_split
 
+
 class SOCDropDataset(Dataset):
-    def __init__(self, trips, scaler_past, scaler_future, scaler_static,
-                 past_len: int, use_future_speed: bool,
-                 past_features: List[str],
-                 future_features: List[str],
-                 static_features: List[str],
-                 future_seq_len: int,
+    def __init__(self, trips, scaler_past = None, scaler_future = None, scaler_static = None,
+                 past_len: int = 30, use_future_speed: bool = False,
+                 past_features: List[str] = [],
+                 future_features: List[str] = [],
+                 static_features: List[str] = [],
+                 future_seq_len: int = 100,
                  stride: int = 30, 
                  SOC_min=0.15, SOC_max=0.85,
+                 use_road_type=True,
                  verbose=False):
         self.samples = []
         self.scaler_past = scaler_past
@@ -30,6 +32,7 @@ class SOCDropDataset(Dataset):
         self.static_features = static_features
         self.future_seq_len = future_seq_len
         self.stride = stride
+        self.use_road_type = use_road_type
         self.trip_data = {}
         self._has_charging = False
 
@@ -65,7 +68,8 @@ class SOCDropDataset(Dataset):
                 "alt": df["alt"].to_numpy(np.float32),
                 "m": df["m"].to_numpy(np.float32),
                 "distance_to_end": df["distance_to_end"].to_numpy(np.float32),
-                "distance_rem": df["distance_rem"].to_numpy(np.float32)
+                "distance_rem": df["distance_rem"].to_numpy(np.float32),
+                "remaining_range": df["remaining_range"].to_numpy(np.float32),
             }
 
             # Add one-hot road type columns
@@ -125,17 +129,22 @@ class SOCDropDataset(Dataset):
         soc_drop = sample["soc_drop"]
 
         # --- Past sequence
-        past_window = [trip[col][t - self.past_len:t] for col in self.past_features]
-        if any(len(x) != self.past_len for x in past_window):
-            return None
-        past_seq = np.stack(past_window, axis=1)
-        past_seq = self.scaler_past.transform(past_seq)
+        if self.scaler_past is not None:
+            past_window = [trip[col][t - self.past_len:t] for col in self.past_features]
+            if any(len(x) != self.past_len for x in past_window):
+                return None
+            past_seq = np.stack(past_window, axis=1)
+            past_seq = self.scaler_past.transform(past_seq)
+        else:
+            print(f"Warning: scaler_past is None. Skipping sample {idx}.")
+            past_seq = None
 
-        # --- Future sequence (fixed number of future waypoints)
+        # --- Future sequence (fixed number of future waypoints) # TODO: this can be conditioned too?
         road_type_cols = [col for col in trip.columns if col.startswith("road_type_") and col != 'road_type_enc']
-        future_feature_cols = self.future_features + road_type_cols
+
+        future_feature_cols = self.future_features + road_type_cols if self.use_road_type else self.future_features
         if self.use_future_speed:
-            future_feature_cols = ["v"] + future_feature_cols
+            future_feature_cols = ["v"] + future_feature_cols #TODO: future_feature_cols is not used anywhere else
 
         trip_len = len(trip)
         end_idx = trip_len
@@ -146,31 +155,76 @@ class SOCDropDataset(Dataset):
 
         idxs = np.linspace(0, len(window)-1, self.future_seq_len, dtype=int)
         selected = window.iloc[idxs]
+        if len(selected) == 0:
+            print(f"Warning: selected is empty. Skipping sample {idx}.")
+            return None
 
         # Apply scaling to continuous features only
-        future_scaled = self.scaler_future.transform(selected[self.future_features].values)
-        road_onehot = selected[road_type_cols].values
-
-        future_seq = np.concatenate([future_scaled, road_onehot], axis=1)
-
+        if self.scaler_future is not None:
+            future_scaled = self.scaler_future.transform(selected[self.future_features].values)
+            road_onehot = selected[road_type_cols].values if self.use_road_type else None
+            future_seq = np.concatenate([future_scaled, road_onehot], axis=1) if road_onehot is not None else future_scaled
+            # print(f'[DEBUG]: future_seq shape: {future_seq.shape}')
+            # print(f'[DEBUG]: future features: {self.future_features}')
+            # print(f'[DEBUG]: road_onehot: {road_onehot}')
+        else:
+            print(f"Warning: scaler_future is None. Skipping sample {idx}.")
+            future_seq = None
+        
         # --- Static features
-        static_feat = np.array([trip[col][t] for col in self.static_features], dtype=np.float32)
-        static_feat = self.scaler_static.transform([static_feat])[0]
+        if self.scaler_static is not None:
+            static_feat = np.array([trip[col][t] for col in self.static_features], dtype=np.float32)
+            static_feat = self.scaler_static.transform([static_feat])[0]
+        else:
+            print(f"Warning: scaler_static is None. Skipping sample {idx}.")
+            static_feat = None
 
+        # check if any values of past_seq and future_seq are None
+        if any(x is None for x in static_feat):
+            print(f"Warning: static_feat is None. Skipping sample {idx}.")
+            return None
+        if any(x is None for x in past_seq):
+            print(f"Warning: past_seq is None. Skipping sample {idx}.")
+            return None
+        if any(x is None for x in future_seq):
+            print(f"Warning: future_seq is None. Skipping sample {idx}.")
+            return None
         return {
-            "past_seq": torch.tensor(past_seq, dtype=torch.float32),
-            "future_seq": torch.tensor(future_seq, dtype=torch.float32),
-            "static_feat": torch.tensor(static_feat, dtype=torch.float32),
+            "past_seq": torch.tensor(past_seq, dtype=torch.float32) if past_seq is not None else None,
+            "future_seq": torch.tensor(future_seq, dtype=torch.float32) if future_seq is not None else None,
+            "static_feat": torch.tensor(static_feat, dtype=torch.float32) if static_feat is not None else None,
             "target": torch.tensor(soc_drop, dtype=torch.float32)
         }
+    
 
 
-def build_datasets(config: dict, verbose: bool = False):
+def inject_distance_noise(df, noise_std_km=0.2, seed=None):
+    """
+    Adds Gaussian noise to the 'distance_rem' column in km.
+    """
+    if seed is not None:
+        np.random.seed(seed)
+    else:
+        np.random.seed(42)
+        
+    noise = np.random.normal(loc=0.0, scale=noise_std_km, size=len(df))
+    df = df.copy()
+    df['distance_rem'] += noise
+    df['distance_rem'] = df['distance_rem'].clip(lower=0.0)  # ensure non-negative
+    return df
+
+
+def build_datasets(config: dict, inject_noise: bool = False, 
+                   noise_std_km : float = 0.2, only_test : bool = False,
+                   verbose: bool = False):
     """
     Build datasets for training and validation.
 
     Args:
         config (dict): Configuration dictionary containing dataset parameters.
+        inject_noise (bool): Whether to inject noise into the distance remaining column.
+        noise_std_km (float): Standard deviation of the Gaussian noise to be injected.
+        verbose (bool): Whether to print verbose output.
 
     Returns:
         tuple: Training and validation datasets.
@@ -188,13 +242,28 @@ def build_datasets(config: dict, verbose: bool = False):
             continue
         
         df = pd.read_csv(os.path.join(DATA_PATH, file))
+        if len(df)<(15*60):
+            # skipping short trips
+            continue
+
+        if df['SOC'].iloc[0] == df['SOC'].iloc[-1]:
+            # skipping trips with no SOC drop
+            continue
+
         dist = (df['v']*5/18).cumsum()/1000
+
+        if dist.iloc[-1] == 0:
+            # skipping trips with no distance
+            continue
 
         # Remove all 'gps_' columns
         df = df.loc[:, ~df.columns.str.startswith('gps_')]
 
         # Add distance remaining column
         df['distance_rem'] = dist.iloc[-1] - dist
+        df = dynamic_remaining_range(df)
+        if inject_noise:
+            df = inject_distance_noise(df, noise_std_km=noise_std_km, seed=42)  # ADD THIS
         trips.append(df)
         if verbose:
             print(f'Loading trips from data: {i}/{num_files}', end='\r')
@@ -216,56 +285,70 @@ def build_datasets(config: dict, verbose: bool = False):
         print("Scalers fitted")
 
     # Create datasets
-    train_dataset = SOCDropDataset(
-        trips=train_trips,
-        scaler_past=scaler_past,
-        scaler_future=scaler_future,
-        scaler_static=scaler_static,
-        past_len=config["past_seq_len"],
-        use_future_speed=config["use_future_speed"],
-        past_features=config["past_features"],
-        future_features=config["future_features"],
-        static_features=config["static_features"],
-        future_seq_len=config["future_seq_len"],
-        SOC_min=config["SOC_min"],
-        SOC_max=config["SOC_max"]
-    )
-    if verbose:
-        print(f"Train dataset size: {len(train_dataset)}")
+    if not only_test:
+        train_dataset = SOCDropDataset(
+            trips=train_trips,
+            scaler_past=scaler_past,
+            scaler_future=scaler_future,
+            scaler_static=scaler_static,
+            past_len=config["past_seq_len"],
+            use_future_speed=config["use_future_speed"],
+            past_features=config["past_features"],
+            future_features=config["future_features"],
+            static_features=config["static_features"],
+            future_seq_len=config["future_seq_len"],
+            SOC_min=config["SOC_min"],
+            SOC_max=config["SOC_max"],
+            use_road_type=config["use_road_type"]
+        )
+        if verbose:
+            print(f'Static features: {config["static_features"]}')
+            print(f"Train dataset size: {len(train_dataset)}")
 
-    val_dataset = SOCDropDataset(
-        trips=val_trips,
-        scaler_past=scaler_past,
-        scaler_future=scaler_future,
-        scaler_static=scaler_static,
-        past_len=config["past_seq_len"],
-        use_future_speed=config["use_future_speed"],
-        past_features=config["past_features"],
-        future_features=config["future_features"],
-        static_features=config["static_features"],
-        future_seq_len=config["future_seq_len"],
-        SOC_min=config["SOC_min"],
-        SOC_max=config["SOC_max"]
-    )
-    if verbose:
-        print(f"Validation dataset size: {len(val_dataset)}")
+        val_dataset = SOCDropDataset(
+            trips=val_trips,
+            scaler_past=scaler_past,
+            scaler_future=scaler_future,
+            scaler_static=scaler_static,
+            past_len=config["past_seq_len"],
+            use_future_speed=config["use_future_speed"],
+            past_features=config["past_features"],
+            future_features=config["future_features"],
+            static_features=config["static_features"],
+            future_seq_len=config["future_seq_len"],
+            SOC_min=config["SOC_min"],
+            SOC_max=config["SOC_max"],
+            use_road_type=config["use_road_type"]
+        )
+        if verbose:
+            print(f"Validation dataset size: {len(val_dataset)}")
+    else:
+        train_dataset = None
+        val_dataset = None
+        
 
-    test_dataset = SOCDropDataset(
-        trips=test_trips,
-        scaler_past=scaler_past,
-        scaler_future=scaler_future,
-        scaler_static=scaler_static,
-        past_len=config["past_seq_len"],
-        use_future_speed=config["use_future_speed"],
-        past_features=config["past_features"],
-        future_features=config["future_features"],
-        static_features=config["static_features"],
-        future_seq_len=config["future_seq_len"],
-        SOC_min=config["SOC_min"],
-        SOC_max=config["SOC_max"]
-    )
-    if verbose:
-        print(f"Test dataset size: {len(test_dataset)}")
-        print("Datasets created")
+    if only_test:
+        test_dataset = SOCDropDataset(
+            trips=test_trips,
+            scaler_past=scaler_past,
+            scaler_future=scaler_future,
+            scaler_static=scaler_static,
+            past_len=config["past_seq_len"],
+            use_future_speed=config["use_future_speed"],
+            past_features=config["past_features"],
+            future_features=config["future_features"],
+            static_features=config["static_features"],
+            future_seq_len=config["future_seq_len"],
+            SOC_min=config["SOC_min"],
+            SOC_max=config["SOC_max"],
+            use_road_type=config["use_road_type"]
+        )
+        if verbose:
+            print(f"Test dataset size: {len(test_dataset)}")
+            print("Datasets created")
+    else:
+        test_dataset = None
 
+    if only_test:
+        return test_dataset
     return train_dataset, val_dataset, test_dataset
