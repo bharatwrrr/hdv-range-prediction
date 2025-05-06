@@ -1,0 +1,1 @@
+{"override": {"past_features": ["v", "a", "theta", "alt", "P"], "past_encoder_type": "lstm", "loss_alpha": 0.7, "name": "lstm_alpha_0.7"}}
