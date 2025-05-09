@@ -254,11 +254,11 @@ def plot_soc_drop_and_range_with_shaded(result_dict, title="SOC Drop Prediction 
 
     if "true_range" in result_dict:
         true_range = np.array(result_dict["true_range"])
-        zero_idx = np.where(true_range <= 0.5)
+        zero_idx = np.where(true_range <= 1) # initially this was 0.5, but there were some cases where the minimum range was around 0.8
         
         if len(zero_idx)>1:
             zero_idx = zero_idx[-1]
-        if true_range[zero_idx] <= 0.5:
+        if true_range[zero_idx] <= 1:
             shade_start = t[zero_idx]
             
     # --- Plot SOC Drop (subplot 0) ---
