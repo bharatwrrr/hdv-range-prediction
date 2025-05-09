@@ -23,9 +23,9 @@ def validate(model, val_loader, criterion, device, max_batches=20):
             if i >= max_batches:
                 break
 
-            past_seq = batch["past_seq"].to(device)
-            future_seq = batch["future_seq"].to(device)
-            static = batch["static_feat"].to(device)
+            past_seq = batch["past_seq"].to(device) if "past_seq" in batch else None
+            future_seq = batch["future_seq"].to(device) if "future_seq" in batch else None
+            static = batch["static_feat"].to(device) if "static_feat" in batch else None
             target = batch["target"].to(device)
 
             mu, sigma = model(past_seq, future_seq, static)
@@ -97,9 +97,9 @@ def train(config_path="configs/base_config.json", verbose: bool = False):
         total_mae = 0
         total_samples = 0
         for i, batch in enumerate(train_loader):
-            past_seq = batch["past_seq"].to(device)
-            future_seq = batch["future_seq"].to(device)
-            static_feat = batch["static_feat"].to(device)
+            past_seq = batch["past_seq"].to(device) if "past_seq" in batch else None
+            future_seq = batch["future_seq"].to(device) if "future_seq" in batch else None
+            static_feat = batch["static_feat"].to(device) if "static_feat" in batch else None
             target = batch["target"].to(device)
 
             mu, sigma = model(past_seq, future_seq, static_feat)
