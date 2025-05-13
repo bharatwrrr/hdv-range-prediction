@@ -3,11 +3,11 @@ import torch
 import torch.nn.functional as F
 import wandb
 from torch.utils.data import DataLoader
-from torch import nn, optim
+from torch import optim
 
 from src.models import build_model, gaussian_nll
 from src.datasets import build_datasets
-from src.utils import load_config, collate_fn_skip_none, BASE_CONFIG_PATH
+from src.utils import load_config, collate_fn_skip_none, BASE_CONFIG_PATH, load_model_from_config
 
 
 def validate(model, val_loader, criterion, device, max_batches=20):
@@ -48,31 +48,43 @@ def validate(model, val_loader, criterion, device, max_batches=20):
 
 
 
-def train(config_path="configs/base_config.json", verbose: bool = False):
+def train(config_path="configs/base_config.json", continue_training: bool = False, 
+          verbose: bool = False):
     # Load config
     config = load_config(BASE_CONFIG_PATH, config_path)
     model_name = config["name"]
-    # Save the model with the unique name
-    model_path = f"models/{model_name}.pth"
-    if os.path.exists(model_path):
-        print(f"Model {model_name} already exists. Skipping training.")
-        return
-    # set_seed(42)
-
+    
     # Init Weights & Biases
     wandb.init(project="soc_drop_prediction", config=config)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    train_dataset, val_dataset, test_dataset = build_datasets(config, verbose=verbose)
+    train_dataset, val_dataset, _ = build_datasets(config, verbose=verbose)
     if verbose:
-        print(f"Train dataset size: {len(train_dataset)}")
-    train_loader = DataLoader(train_dataset, batch_size=config["batch_size"], shuffle=True, num_workers=12,
+        if train_dataset is not None:
+            print(f"Train dataset size: {len(train_dataset)}")
+
+    if (train_dataset is not None) and (val_dataset is not None):
+        train_loader = DataLoader(train_dataset, batch_size=config["batch_size"], shuffle=True, num_workers=12,
                               collate_fn=collate_fn_skip_none)
-    val_loader = DataLoader(val_dataset, batch_size=config["batch_size"], shuffle=True, num_workers=12,
+
+        val_loader = DataLoader(val_dataset, batch_size=config["batch_size"], shuffle=True, num_workers=12,
                             collate_fn=collate_fn_skip_none) #TODO: shuffle=True for validation? 
+    else:
+        raise ValueError("Train or validation dataset is None. Please check the dataset configuration.")
     
     # Build model
-    model = build_model(config).to(device) #TODO: Implement Distributed Data Parallelism
+    model_path = f"models/{model_name}.pth"
+
+    if not continue_training:
+        model = build_model(config).to(device) #TODO: Implement Distributed Data Parallelism
+    else:
+        if os.path.exists(model_path):
+            model = load_model_from_config(config)
+            print('Model loaded.')
+        else:
+            print(f"Model {model_name} does not exist. Please check the model path.")
+            return
+        
     if verbose:
         print(f"Model: {model}")
     optimizer = optim.Adam(model.parameters(), lr=config["init_lr"])
