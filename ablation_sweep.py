@@ -1,12 +1,12 @@
 from train import train
 import os
-from src.utils import load_config, ABLATION_CONFIGS_DIR, OUTPUT_DIR, SRC_DIR
+from src.utils import load_config, ABLATION_CONFIGS_DIR, OUTPUT_DIR
 
 print(f"Using ablation configs dir: {ABLATION_CONFIGS_DIR}")
 
 
 def ablation_sweep(ablation_configs_dir = ABLATION_CONFIGS_DIR, output_dir = OUTPUT_DIR, 
-                   which_ablation : str = "all", verbose: bool = False):
+                   which_ablation : str = "all", continue_training: bool = False, verbose: bool = False):
     """
     Perform an ablation study by running experiments with different configurations.
     
@@ -15,7 +15,6 @@ def ablation_sweep(ablation_configs_dir = ABLATION_CONFIGS_DIR, output_dir = OUT
         ablation_configs_dir (str): Directory containing ablation configuration files.
         output_dir (str): Directory to save the results of the experiments.
     """
-    # os.chdir(SRC_DIR)
     script_dir = os.path.dirname(os.path.abspath(__file__))
     ablation_configs_dir = os.path.join(script_dir, ABLATION_CONFIGS_DIR)
     print(f"Running ablation study with {which_ablation} ablation")
@@ -49,7 +48,7 @@ def ablation_sweep(ablation_configs_dir = ABLATION_CONFIGS_DIR, output_dir = OUT
 
         # Run the experiment
         print(f"Running experiment with config: {config}")
-        train(config_path=config_file_path)
+        train(config_path=config_file_path, continue_training=continue_training, verbose=verbose)
 
 if __name__ == "__main__":
     ablation_sweep()
