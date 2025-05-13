@@ -2,7 +2,7 @@ import os
 import torch
 import numpy as np
 from torch.utils.data import Dataset
-from ..utils import detect_charging_jump, get_full_config
+from ..utils import detect_charging_jump
 from typing import List
 
 import fireducks.pandas as pd
@@ -18,7 +18,7 @@ class SOCDropDataset(Dataset):
                  static_features: List[str] = [],
                  future_seq_len: int = 100,
                  stride: int = 30, 
-                 SOC_min=0.15, SOC_max=0.85,
+                 SOC_min=15, SOC_max=85,
                  use_road_type=True,
                  verbose=False):
         self.samples = []
@@ -127,19 +127,19 @@ class SOCDropDataset(Dataset):
         trip = self.trip_data[sample["trip_idx"]]
         t = sample["t"]
         soc_drop = sample["soc_drop"]
+        out = {"target": torch.tensor(soc_drop, dtype=torch.float32)}
 
-        # --- Past sequence
+        #  Past sequence
         if self.scaler_past is not None:
             past_window = [trip[col][t - self.past_len:t] for col in self.past_features]
             if any(len(x) != self.past_len for x in past_window):
                 return None
             past_seq = np.stack(past_window, axis=1)
             past_seq = self.scaler_past.transform(past_seq)
-        else:
-            print(f"Warning: scaler_past is None. Skipping sample {idx}.")
-            past_seq = None
+            out["past_seq"] = torch.tensor(past_seq, dtype=torch.float32)
 
-        # --- Future sequence (fixed number of future waypoints) # TODO: this can be conditioned too?
+
+        #  Future sequence (fixed number of future waypoints) # TODO: this can be conditioned too?
         road_type_cols = [col for col in trip.columns if col.startswith("road_type_") and col != 'road_type_enc']
 
         future_feature_cols = self.future_features + road_type_cols if self.use_road_type else self.future_features
@@ -167,34 +167,16 @@ class SOCDropDataset(Dataset):
             # print(f'[DEBUG]: future_seq shape: {future_seq.shape}')
             # print(f'[DEBUG]: future features: {self.future_features}')
             # print(f'[DEBUG]: road_onehot: {road_onehot}')
-        else:
-            print(f"Warning: scaler_future is None. Skipping sample {idx}.")
-            future_seq = None
+            out["future_seq"] = torch.tensor(future_seq, dtype=torch.float32)
+
         
-        # --- Static features
+        #  Static features
         if self.scaler_static is not None:
             static_feat = np.array([trip[col][t] for col in self.static_features], dtype=np.float32)
             static_feat = self.scaler_static.transform([static_feat])[0]
-        else:
-            print(f"Warning: scaler_static is None. Skipping sample {idx}.")
-            static_feat = None
-
-        # check if any values of past_seq and future_seq are None
-        if any(x is None for x in static_feat):
-            print(f"Warning: static_feat is None. Skipping sample {idx}.")
-            return None
-        if any(x is None for x in past_seq):
-            print(f"Warning: past_seq is None. Skipping sample {idx}.")
-            return None
-        if any(x is None for x in future_seq):
-            print(f"Warning: future_seq is None. Skipping sample {idx}.")
-            return None
-        return {
-            "past_seq": torch.tensor(past_seq, dtype=torch.float32) if past_seq is not None else None,
-            "future_seq": torch.tensor(future_seq, dtype=torch.float32) if future_seq is not None else None,
-            "static_feat": torch.tensor(static_feat, dtype=torch.float32) if static_feat is not None else None,
-            "target": torch.tensor(soc_drop, dtype=torch.float32)
-        }
+            out["static_feat"] = torch.tensor(static_feat, dtype=torch.float32)
+            
+        return out
     
 
 
@@ -350,5 +332,5 @@ def build_datasets(config: dict, inject_noise: bool = False,
         test_dataset = None
 
     if only_test:
-        return test_dataset
+        return train_dataset, val_dataset, test_dataset
     return train_dataset, val_dataset, test_dataset
