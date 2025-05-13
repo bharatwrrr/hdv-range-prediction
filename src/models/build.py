@@ -1,3 +1,4 @@
+
 def build_transformer_model(config: dict):
     """
     Build the transformer model based on the configuration.
@@ -10,9 +11,9 @@ def build_transformer_model(config: dict):
     """
     from .transformer_model import TransformerSOCDropPredictor
     return TransformerSOCDropPredictor(
-        past_input_dim=len(config["past_features"]),
-        future_input_dim=len(config["future_features"]) + (config["road_num_classes"] if config["use_road_type"] else 0),
-        static_dim=len(config["static_features"]),
+        past_input_dim=len(config["past_features"]) if config['name'] != 'no_past' else 0,
+        future_input_dim=len(config["future_features"]) + (config["road_num_classes"] if config["use_road_type"] else 0) if config['name'] != 'no_future' else 0,
+        static_dim=len(config["static_features"]) if config['name'] != 'no_static' else 0,
         past_hidden_dim=config["past_encoder_hidden_dim"],
         future_hidden_dim=config["future_encoder_hidden_dim"],
         fused_hidden_dim=config["fused_hidden_dim"]
@@ -28,10 +29,9 @@ def build_lstm_model(config: dict):
     """
     from .lstm_model import LSTMModel
     return LSTMModel(
-        input_dim=config["input_dim"],
-        hidden_dim=config["hidden_dim"],
-        n_layers=config["n_layers"],
-        dropout=config["dropout"]
+        past_dim=len(config["past_features"]),
+        static_dim=len(config["static_features"]),
+        n_layers = 3
     )
 
 
@@ -51,3 +51,4 @@ def build_model(config: dict):
         return build_lstm_model(config)
     else:
         raise ValueError(f"Unknown model type: {config['model']}")
+    
