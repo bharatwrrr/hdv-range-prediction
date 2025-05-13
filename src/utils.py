@@ -1,18 +1,22 @@
 import torch
 import torch.nn as nn
 from torch.utils.data.dataloader import default_collate
-
+import os
 import math
 import json
 import numpy as np
-from typing import List, Tuple
-from sklearn.preprocessing import StandardScaler, OneHotEncoder
+from pathlib import Path
+from typing import List
+from sklearn.preprocessing import StandardScaler
 
-DATA_PATH = "data/" # change this to your data path
-SRC_DIR = "src/"
-BASE_CONFIG_PATH = "configs/base_config.json"
-ABLATION_CONFIGS_DIR = "configs/ablations/"
-OUTPUT_DIR = "output/" 
+ROOT = Path(__file__).resolve().parent.parent
+
+DATA_PATH = os.path.join(ROOT, "data")
+SRC_DIR = os.path.join(ROOT, "src")
+BASE_CONFIG_PATH = os.path.join(ROOT, "configs/base_config.json")
+ABLATION_CONFIGS_DIR = os.path.join(ROOT, "configs/ablations")
+OUTPUT_DIR = os.path.join(ROOT, "output")
+SAVE_MODELS_PATH = os.path.join(ROOT, "models")
 
 class PositionalEncoding(nn.Module):
     def __init__(self, dim, max_len=1000):
@@ -36,7 +40,7 @@ class PositionalEncoding(nn.Module):
     
 def fit_scalers(trips, use_future_speed: bool,
                 past_features: List[str],future_features: List[str],
-                static_features: List[str]) -> Tuple[StandardScaler, StandardScaler, StandardScaler]:
+                static_features: List[str]):
     """
     Fit scalers for past, future, and static features.
     """   
@@ -101,7 +105,7 @@ def detect_charging_jump(df, soc_col: str ="SOC", soc_min=15.0, soc_max=85.0, to
 
     return is_jumped
 
-def collate_fn_skip_none(batch: List[torch.Tensor]) -> torch.Tensor:
+def collate_fn_skip_none(batch: List[torch.Tensor]):
     """
     Custom collate function to skip None values in the batch.
     Args:
@@ -127,3 +131,141 @@ def load_config(base_path=BASE_CONFIG_PATH, ablation_path=None):
             base_config.update(ablation_config["override"])
 
     return base_config
+
+def get_full_config(config: dict) -> dict:
+    """
+    Get the full configuration by merging base config with ablation config if provided.
+    
+    Args:
+        config (dict): Base configuration dictionary.
+        ablation_path (str): Path to the ablation configuration file.
+    
+    Returns:
+        dict: Merged configuration dictionary.
+    """
+    # Load base config
+
+    if "override" in config:
+        base_config = load_config()
+        # Merge overrides into base config
+        base_config.update(config["override"])
+        return base_config
+    else:
+        # If no override, return the base config
+        return config
+
+def load_model(model, model_path: str, device: str = "cuda" if torch.cuda.is_available() else "cpu"):
+    """
+    Load the model from the specified path.
+
+    Args:
+        model (nn.Module): The model to load.
+        model_path (str): Path to the saved model.
+        device (str): Device to load the model on.
+
+    Returns:
+        nn.Module: The loaded model.
+    """
+    
+    model = torch.load(model_path, map_location=device)
+
+    return model
+
+def load_model_from_config(config: dict, device: str = "cuda" if torch.cuda.is_available() else "cpu"):
+    """
+    Load the saved mode based on the configuration.
+
+    Args:
+        config (dict): Configuration dictionary containing model parameters.
+        device (str): Device to load the model on.
+
+    Returns:
+        nn.Module: The constructed model.
+    """
+    from src.models.build import build_model
+
+    config = get_full_config(config)
+    model_path = os.path.join(SAVE_MODELS_PATH, f'{config["name"]}.pth')
+    if not os.path.exists(model_path):
+        raise FileNotFoundError(f"Model file {model_path} does not exist.")
+    
+    model = build_model(config)
+    model = load_model(model, model_path, device)
+    model.to(device)
+    return model
+
+def soc_to_range(soc_now, soc_min, soc_drop_pred, distance_rem, soc_drop_sigma=None, eps=1):
+    """
+    Linearly transforms SOC drop prediction into range estimate.
+    
+    Arguments:
+        soc_now: Current SOC at time t (float)
+        soc_min: Minimum usable SOC (e.g., 0.15)
+        soc_drop_pred: Predicted SOC drop to complete the trip
+        soc_drop_sigma: Uncertainty in SOC drop
+        distance_rem: Known distance to end of trip
+        
+    Returns:
+        predicted_range, predicted_range_sigma
+    """
+    usable_soc = soc_now - soc_min
+    soc_drop_pred = max(soc_drop_pred, eps)  # avoid division by zero
+
+
+    predicted_range = distance_rem * (usable_soc / soc_drop_pred)
+
+    # Estimate uncertainty using first-order approximation
+    if soc_drop_sigma is not None:
+        range_sigma = abs((distance_rem * usable_soc) / (soc_drop_pred**2)) * soc_drop_sigma
+    
+        # For the last 3 km, predict range based on distance only (see evaluate_trip in test.py)
+        if distance_rem < 3:
+            return None, range_sigma
+    else:
+        range_sigma = None
+
+    return predicted_range, range_sigma
+
+def dynamic_remaining_range(df, soc_min=15, soc_max=85):
+    """
+    Estimate remaining range dynamically using local energy rate estimates.
+    
+    Args:
+        df: pd.DataFrame with 'SOC' and 'd' columns (distance in km)
+        window_len: number of steps ahead to compute local energy rate
+        soc_min: minimum usable SOC
+
+    Returns:
+        np.ndarray: estimated remaining range at each timestep
+    """
+    
+    df['d'] = (df['v'] * df['t'].diff().fillna(0)/3600).cumsum()
+
+    trip_dist = df['d'].iloc[-1]
+    
+    soc = df["SOC"].to_numpy()
+    dist = df["d"].to_numpy()
+    n = len(df)
+    
+    if soc[0]==soc[-1]:
+        print("SOC at start and end are the same. Cannot estimate range.")
+        print(soc)
+    if trip_dist == 0:
+        print("Trip distance is zero. Cannot estimate range.")
+        print(dist)
+
+    if detect_charging_jump(df):
+        range0 = (soc_max-soc_min)/((soc[0] - soc[-1] + soc_max - soc_min)/trip_dist)
+    else:
+        range0 = (soc_max-soc_min)/((soc[0] - soc[-1])/trip_dist)
+    
+    range_est = np.ones(n) * range0
+    for i in range(1, n):
+        range_est[i] = range_est[i-1] - (soc[i-1] - soc[i])/(soc_max-soc_min)*range0
+    
+
+    df["remaining_range"] = range_est
+    return df
+
+
+
