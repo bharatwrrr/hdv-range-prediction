@@ -1,6 +1,7 @@
 # HDV Range Prediction
 
-This repository contains code and resources for predicting the range of Heavy-Duty Vehicles (HDVs) using various data sources and machine learning techniques. The project is part of the SAE ICE 2025 initiative.
+This repository is the official implementation of the work from the research article: [Reducing Range Prediction Uncertainty in Heavy-Duty Electric Vehicles Using a Route-Informed Transformer-Based Model](https://www.sae.org/publications/technical-papers/content/2025-24-0122/). The article is published in the Proceedings of the 17th International Conference on Engines and Vehicles for Sustainable Transport 2025.
+
 
 ## Features
 
