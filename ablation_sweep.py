@@ -1,6 +1,7 @@
 from train import train
 import os
 from src.utils import load_config, ABLATION_CONFIGS_DIR, OUTPUT_DIR
+import argparse
 
 print(f"Using ablation configs dir: {ABLATION_CONFIGS_DIR}")
 
@@ -35,20 +36,30 @@ def ablation_sweep(ablation_configs_dir = ABLATION_CONFIGS_DIR, output_dir = OUT
     if verbose:
         print(f"Config file paths: {config_file_paths}")
 
-    # Create output directory if it doesn't exist
+    # if output directory does not exist
     os.makedirs(output_dir, exist_ok=True)
 
     if len(config_file_paths) == 0:
         print("No config files found.")
         return
 
-    # Iterate over all JSON files
+    # iterate over JSON files
     for config_file_path in config_file_paths:
         config = load_config(ablation_path=config_file_path)
 
-        # Run the experiment
+        # Run
         print(f"Running experiment with config: {config}")
         train(config_path=config_file_path, continue_training=continue_training, verbose=verbose)
 
 if __name__ == "__main__":
-    ablation_sweep()
+    parser = argparse.ArgumentParser(description="Run ablation sweep.")
+    parser.add_argument("--which_ablation", type=str, default="all", help="Which ablation to run (arch, loss, feature, sequence, all)")
+    parser.add_argument("--continue_training", action="store_true", help="Continue training from checkpoint")
+    parser.add_argument("--verbose", action="store_true", help="Enable verbose output")
+    args = parser.parse_args()
+
+    ablation_sweep(
+        which_ablation=args.which_ablation,
+        continue_training=args.continue_training,
+        verbose=args.verbose
+    )
