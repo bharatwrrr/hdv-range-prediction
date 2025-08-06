@@ -54,7 +54,7 @@ def train(config_path="configs/base_config.json", continue_training: bool = Fals
     config = load_config(BASE_CONFIG_PATH, config_path)
     model_name = config["name"]
     
-    # Init Weights & Biases
+    # This is for wandb logging (you might have to set up your wandb account))
     wandb.init(project="soc_drop_prediction", config=config)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -68,7 +68,7 @@ def train(config_path="configs/base_config.json", continue_training: bool = Fals
                               collate_fn=collate_fn_skip_none)
 
         val_loader = DataLoader(val_dataset, batch_size=config["batch_size"], shuffle=True, num_workers=12,
-                            collate_fn=collate_fn_skip_none) #TODO: shuffle=True for validation? 
+                            collate_fn=collate_fn_skip_none) #NOTE: you can change num_workers here based on your system
     else:
         raise ValueError("Train or validation dataset is None. Please check the dataset configuration.")
     
@@ -76,7 +76,7 @@ def train(config_path="configs/base_config.json", continue_training: bool = Fals
     model_path = f"models/{model_name}.pth"
 
     if not continue_training:
-        model = build_model(config).to(device) #TODO: Implement Distributed Data Parallelism
+        model = build_model(config).to(device)
     else:
         if os.path.exists(model_path):
             model = load_model_from_config(config)
@@ -122,10 +122,9 @@ def train(config_path="configs/base_config.json", continue_training: bool = Fals
             loss.backward()
             optimizer.step()
 
-            # Accumulate loss
+            # Accumulate loss and metrics
             total_loss += loss.item()
     
-            # Accumulate MAE
             batch_mae = torch.abs(mu - target).sum().item()
             total_mae += batch_mae
             total_samples += target.size(0)
@@ -173,5 +172,7 @@ if __name__ == "__main__":
     import argparse    
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', type=str, default="configs/base_config.json")
+    parser.add_argument('--continue-training', action='store_true', help="Continue training from the last checkpoint")
+    parser.add_argument('--verbose', action='store_true', help="Enable verbose output")
     args = parser.parse_args()
-    train(args.config)
+    train(args.config, continue_training=args.continue_training, verbose=args.verbose)
