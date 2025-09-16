@@ -47,6 +47,12 @@ This repository is the official implementation of the work from the research art
 
 ## Usage
 
+### Dataset
+
+The raw dataset used to train the model can be obtained upon request. Please send an email request:
+1. Bharat Jayaprakash - bharatwrrr@gmail.com
+2. William Northrop - wnorthro@umn.edu
+   
 ### Basic Training
 
 Modify configuration files in `configs/` to set up your experiment parameters.
